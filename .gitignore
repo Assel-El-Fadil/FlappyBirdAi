@@ -1,0 +1,5 @@
+# everything other than the .py files
+
+.idea/
+.venv/
+__pycache__/
