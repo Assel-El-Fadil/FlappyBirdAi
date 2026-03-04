@@ -1,11 +1,10 @@
 import pygame
 
-HEIGHT = 600
-GRAVITY = 800
-JUMP_FORCE = -300
-
 
 class Bird:
+    HEIGHT = 600
+    GRAVITY = 800
+    JUMP_FORCE = -300
 
     def __init__(self, x, y):
         self.x = x
@@ -17,15 +16,15 @@ class Bird:
 
     def jump(self):
         if not self.dead:
-            self.velocity = JUMP_FORCE
+            self.velocity = self.JUMP_FORCE
 
-    def update(self, dt):
+    def update(self):
         if not self.dead:
-            self.velocity += GRAVITY * dt
-            self.y += self.velocity * dt
+            self.velocity += self.GRAVITY * 0.016
+            self.y += self.velocity * 0.016
 
             # Check boundaries
-            if self.y - self.radius < 0 or self.y + self.radius > HEIGHT:
+            if self.y - self.radius < 0 or self.y + self.radius > self.HEIGHT:
                 self.dead = True
 
     def draw(self, screen):

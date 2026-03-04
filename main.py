@@ -6,18 +6,7 @@ from Bird import Bird
 
 pygame.init()
 
-# -------------------
-# Constants
-# -------------------
-GRAVITY = 800
-JUMP_FORCE = -300
-PIPE_WIDTH = 70
-PIPE_GAP = 150
-PIPE_SPAWN_TIME = 1.5
-
-# -------------------
-# Window
-# -------------------
+# Window settings
 WIDTH = 800
 HEIGHT = 600
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
@@ -27,30 +16,23 @@ clock = pygame.time.Clock()
 FPS = 60
 
 
-# -------------------
-# Collision
-# -------------------
-
+# Collision check, TODO: make it only check the nearest pipe
 def check_collision(bird, pipe):
-    if bird.x + bird.radius > pipe.x and bird.x - bird.radius < pipe.x + PIPE_WIDTH:
+    if bird.x + bird.radius > pipe.x and bird.x - bird.radius < pipe.x + pipe.PIPE_WIDTH:
         if bird.y - bird.radius < pipe.height or \
-                bird.y + bird.radius > pipe.height + PIPE_GAP:
+                bird.y + bird.radius > pipe.height + pipe.PIPE_GAP:
             return True
     return False
 
 
-# -------------------
 # Genetic Algorithm
-# -------------------
-
-def create_new_generation(birds_dict):
+def create_new_generation(birds_dict, base_mutation):
     """
     Create a new generation based on the previous generation's performance
     """
     # Sort birds by score (fitness)
     sorted_birds = sorted(birds_dict.items(), key=lambda x: x[0].score, reverse=True)
 
-    # Keep top performers
     num_keep = 10
 
     # Extract top performers
@@ -61,10 +43,9 @@ def create_new_generation(birds_dict):
     print(f"Average Score: {sum(bird.score for bird, _ in sorted_birds) / len(sorted_birds):.2f}")
     print(f"Median Score: {sorted_birds[len(sorted_birds) // 2][0].score}")
 
-    # Create new population
     new_birds = {}
 
-    # 1. Elite: Keep the best performers as-is (no mutation)
+    # Keep the best performers as-is (no mutation)
     for i in range(num_keep):
         bird, network = top_performers[i]
         new_bird = Bird(100, HEIGHT // 2)
@@ -72,9 +53,7 @@ def create_new_generation(birds_dict):
         new_birds[new_bird] = new_network
         print(f"Elite {i + 1}: Score {bird.score}")
 
-    # 2. Breed: Create offspring from top performers
     for i in range(num_keep):
-        # Select two random parents from top performers
         parent = top_performers[i]
 
         for j in range(99):
@@ -82,45 +61,49 @@ def create_new_generation(birds_dict):
 
             child_network = copy.deepcopy(parent[1])
 
-            # Mutation rate decreases as we get better performers
-            base_mutation = 0.5
-            if top_performers[0][0].score > 10:
+            # Mutation rate decreases as we get better performers generation by generation
+            base_mutation_strength = 0.5
+
+            if top_performers[0][0].score > 1000:
                 mutation_rate = base_mutation * 0.5
-            elif top_performers[0][0].score > 5:
+                mutation_strength = base_mutation_strength * 0.1
+            elif top_performers[0][0].score > 100:
                 mutation_rate = base_mutation * 0.7
+                mutation_strength = base_mutation_strength * 0.5
+            elif top_performers[0][0].score > 50:
+                mutation_rate = base_mutation * 0.75
+                mutation_strength = base_mutation_strength
+            elif top_performers[0][0].score > 10:
+                mutation_rate = base_mutation * 0.8
+                mutation_strength = base_mutation_strength
             else:
                 mutation_rate = base_mutation
+                mutation_strength = base_mutation_strength
 
-            child_network.mutate(mutation_rate)
+            child_network.mutate(mutation_rate, mutation_strength)
 
             new_birds[new_bird] = child_network
 
-    return new_birds
+    return new_birds, mutation_rate
 
 
-# -------------------
-# Game State
-# -------------------
-
+# Game restart for new generations
 def reset_game():
     """Reset pipes and spawn timer"""
-    return [Pipe(WIDTH), Pipe(WIDTH + PIPE_WIDTH + 200)], 0
+    return [Pipe(WIDTH), Pipe(WIDTH + pipe.PIPE_WIDTH + 200)], 0
 
 
-# -------------------
-# Main Training Loop
-# -------------------
-
+# Main Loop
 POPULATION = 1000  # Start with smaller population for faster training
 generation = 1
 birds = {Bird(100, HEIGHT // 2): Network() for _ in range(POPULATION)}
 pipes, spawn_timer = reset_game()
 next_pipe = None
 
+base_mutation_rate = 0.75
+
 running = True
 while running:
-    dt = clock.tick(FPS) / 1000.0  # Use actual delta time
-
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
@@ -131,24 +114,22 @@ while running:
                 for bird in birds:
                     bird.dead = True
 
-    screen.fill((0, 0, 0))  # Sky blue background
+    screen.fill((0, 0, 0))  # Black background
 
     # Spawn pipes
-    spawn_timer += dt
-    if spawn_timer >= PIPE_SPAWN_TIME:
-        pipes.append(Pipe(WIDTH + PIPE_WIDTH + 200))
-        spawn_timer = 0
+    if pipes[-1].x <= 800:
+        pipes.append(Pipe(WIDTH + pipe.PIPE_WIDTH + 200))
 
     # Get next pipe for AI decision-making
     if next_pipe:
-        if next_pipe.x + PIPE_WIDTH < 100:
+        if next_pipe.x + pipe.PIPE_WIDTH < 100 - bird.radius:
             for bird in birds:
                 if not bird.dead:
                     bird.score += 1
             next_pipe.passed = True
 
     for pipe in pipes:
-        if pipe.x + PIPE_WIDTH > 100:
+        if not pipe.passed:
             next_pipe = pipe
             break
 
@@ -164,10 +145,9 @@ while running:
         if next_pipe:
             # Normalize inputs for better neural network performance
             normalized_bird_y = bird.y / HEIGHT
-            normalized_velocity = (bird.velocity + 500) / 1000  # Normalize velocity range better
-            normalized_distance = (next_pipe.x - bird.x) / WIDTH
+            normalized_velocity = (bird.velocity + 500) / 1000
+            normalized_distance = abs(next_pipe.x - bird.x) / WIDTH
             normalized_gap = next_pipe.height / HEIGHT
-
             output = birds[bird].forward(
                 normalized_bird_y,
                 normalized_velocity,
@@ -177,7 +157,7 @@ while running:
             if output > 0.9:  # Threshold for jumping
                 bird.jump()
 
-        bird.update(dt)
+        bird.update()
 
         # Check collisions with pipes
         for pipe in pipes:
@@ -190,7 +170,7 @@ while running:
 
     # Update and draw pipes
     for pipe in pipes:
-        pipe.update(dt)
+        pipe.update()
         pipe.draw(screen)
 
     pipes = [pipe for pipe in pipes if not pipe.offscreen()]
@@ -224,7 +204,7 @@ while running:
     # Check if generation is complete (all birds dead)
     if alive_count == 0:
         # Create new generation
-        birds = create_new_generation(birds)
+        birds, base_mutation_rate = create_new_generation(birds, base_mutation_rate)
         pipes, spawn_timer = reset_game()
         generation += 1
 
